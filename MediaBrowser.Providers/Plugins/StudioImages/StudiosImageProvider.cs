@@ -50,41 +50,29 @@ namespace MediaBrowser.Providers.Studios
         {
             return new List<ImageType>
             {
-                ImageType.Primary,
                 ImageType.Thumb
             };
         }
 
-        public Task<IEnumerable<RemoteImageInfo>> GetImages(BaseItem item, CancellationToken cancellationToken)
+        public async Task<IEnumerable<RemoteImageInfo>> GetImages(BaseItem item, CancellationToken cancellationToken)
         {
-            return GetImages(item, true, true, cancellationToken);
-        }
+            var thumbsPath = Path.Combine(_config.ApplicationPaths.CachePath, "imagesbyname", "remotestudiothumbs.txt");
 
-        private async Task<IEnumerable<RemoteImageInfo>> GetImages(BaseItem item, bool posters, bool thumbs, CancellationToken cancellationToken)
-        {
-            var list = new List<RemoteImageInfo>();
-
-            if (posters)
-            {
-                var posterPath = Path.Combine(_config.ApplicationPaths.CachePath, "imagesbyname", "remotestudioposters.txt");
-
-                posterPath = await EnsurePosterList(posterPath, cancellationToken).ConfigureAwait(false);
-
-                list.Add(GetImage(item, posterPath, ImageType.Primary, "folder"));
-            }
+            thumbsPath = await EnsureThumbsList(thumbsPath, cancellationToken).ConfigureAwait(false);
 
             cancellationToken.ThrowIfCancellationRequested();
 
-            if (thumbs)
+            var imageInfo = GetImage(item, thumbsPath, ImageType.Thumb, "thumb");
+
+            if (imageInfo == null)
             {
-                var thumbsPath = Path.Combine(_config.ApplicationPaths.CachePath, "imagesbyname", "remotestudiothumbs.txt");
-
-                thumbsPath = await EnsureThumbsList(thumbsPath, cancellationToken).ConfigureAwait(false);
-
-                list.Add(GetImage(item, thumbsPath, ImageType.Thumb, "thumb"));
+                return Enumerable.Empty<RemoteImageInfo>();
             }
 
-            return list.Where(i => i != null);
+            return new RemoteImageInfo[]
+            {
+                imageInfo
+            };
         }
 
         private RemoteImageInfo GetImage(BaseItem item, string filename, ImageType type, string remoteFilename)
@@ -110,19 +98,12 @@ namespace MediaBrowser.Providers.Studios
 
         private string GetUrl(string image, string filename)
         {
-            return string.Format(CultureInfo.InvariantCulture, "{0}/{1}/{2}.jpg", repositoryUrl, image, filename);
+            return string.Format(CultureInfo.InvariantCulture, "{0}/images/{1}/{2}.jpg", repositoryUrl, image, filename);
         }
 
         private Task<string> EnsureThumbsList(string file, CancellationToken cancellationToken)
         {
-            string url = string.Format(CultureInfo.InvariantCulture, "{0}/studiothumbs.txt", repositoryUrl);
-
-            return EnsureList(url, file, _fileSystem, cancellationToken);
-        }
-
-        private Task<string> EnsurePosterList(string file, CancellationToken cancellationToken)
-        {
-            string url = string.Format(CultureInfo.InvariantCulture, "{0}/studioposters.txt", repositoryUrl);
+            string url = string.Format(CultureInfo.InvariantCulture, "{0}/thumbs.txt", repositoryUrl);
 
             return EnsureList(url, file, _fileSystem, cancellationToken);
         }

@@ -5,6 +5,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json.Serialization;
@@ -230,7 +231,7 @@ namespace MediaBrowser.Controller.Entities
         {
             get
             {
-                if (!ChannelId.Equals(Guid.Empty))
+                if (!ChannelId.Equals(default))
                 {
                     return SourceType.Channel;
                 }
@@ -520,7 +521,7 @@ namespace MediaBrowser.Controller.Entities
             get
             {
                 var id = DisplayParentId;
-                if (id.Equals(Guid.Empty))
+                if (id.Equals(default))
                 {
                     return null;
                 }
@@ -736,7 +737,7 @@ namespace MediaBrowser.Controller.Entities
         public virtual bool StopRefreshIfLocalMetadataFound => true;
 
         [JsonIgnore]
-        protected virtual bool SupportsOwnedItems => !ParentId.Equals(Guid.Empty) && IsFileProtocol;
+        protected virtual bool SupportsOwnedItems => !ParentId.Equals(default) && IsFileProtocol;
 
         [JsonIgnore]
         public virtual bool SupportsPeople => false;
@@ -847,7 +848,7 @@ namespace MediaBrowser.Controller.Entities
         public BaseItem GetOwner()
         {
             var ownerId = OwnerId;
-            return ownerId.Equals(Guid.Empty) ? null : LibraryManager.GetItemById(ownerId);
+            return ownerId.Equals(default) ? null : LibraryManager.GetItemById(ownerId);
         }
 
         public bool CanDelete(User user, List<Folder> allCollectionFolders)
@@ -886,7 +887,7 @@ namespace MediaBrowser.Controller.Entities
             return Name;
         }
 
-        public string GetInternalMetadataPath()
+        public virtual string GetInternalMetadataPath()
         {
             var basePath = ConfigurationManager.ApplicationPaths.InternalMetadataPath;
 
@@ -983,12 +984,12 @@ namespace MediaBrowser.Controller.Entities
         public BaseItem GetParent()
         {
             var parentId = ParentId;
-            if (!parentId.Equals(Guid.Empty))
+            if (parentId.Equals(default))
             {
-                return LibraryManager.GetItemById(parentId);
+                return null;
             }
 
-            return null;
+            return LibraryManager.GetItemById(parentId);
         }
 
         public IEnumerable<BaseItem> GetParents()
@@ -1286,7 +1287,7 @@ namespace MediaBrowser.Controller.Entities
                 {
                     if (IsFileProtocol)
                     {
-                        requiresSave = await RefreshedOwnedItems(options, GetFileSystemChildren(options.DirectoryService).ToList(), cancellationToken).ConfigureAwait(false);
+                        requiresSave = await RefreshedOwnedItems(options, GetFileSystemChildren(options.DirectoryService), cancellationToken).ConfigureAwait(false);
                     }
 
                     await LibraryManager.UpdateImagesAsync(this).ConfigureAwait(false); // ensure all image properties in DB are fresh
@@ -1363,7 +1364,7 @@ namespace MediaBrowser.Controller.Entities
         /// <param name="fileSystemChildren">The list of filesystem children.</param>
         /// <param name="cancellationToken">The cancellation token.</param>
         /// <returns><c>true</c> if any items have changed, else <c>false</c>.</returns>
-        protected virtual async Task<bool> RefreshedOwnedItems(MetadataRefreshOptions options, List<FileSystemMetadata> fileSystemChildren, CancellationToken cancellationToken)
+        protected virtual async Task<bool> RefreshedOwnedItems(MetadataRefreshOptions options, IReadOnlyList<FileSystemMetadata> fileSystemChildren, CancellationToken cancellationToken)
         {
             if (!IsFileProtocol || !SupportsOwnedItems || IsInMixedFolder || this is ICollectionFolder or UserRootFolder or AggregateFolder || this.GetType() == typeof(Folder))
             {
@@ -1380,7 +1381,7 @@ namespace MediaBrowser.Controller.Entities
             return directoryService.GetFileSystemEntries(path);
         }
 
-        private async Task<bool> RefreshExtras(BaseItem item, MetadataRefreshOptions options, List<FileSystemMetadata> fileSystemChildren, CancellationToken cancellationToken)
+        private async Task<bool> RefreshExtras(BaseItem item, MetadataRefreshOptions options, IReadOnlyList<FileSystemMetadata> fileSystemChildren, CancellationToken cancellationToken)
         {
             var extras = LibraryManager.FindExtras(item, fileSystemChildren, options.DirectoryService).ToArray();
             var newExtraIds = extras.Select(i => i.Id).ToArray();
@@ -1396,7 +1397,7 @@ namespace MediaBrowser.Controller.Entities
             var tasks = extras.Select(i =>
             {
                 var subOptions = new MetadataRefreshOptions(options);
-                if (i.OwnerId != ownerId || i.ParentId != Guid.Empty)
+                if (!i.OwnerId.Equals(ownerId) || !i.ParentId.Equals(default))
                 {
                     i.OwnerId = ownerId;
                     i.ParentId = Guid.Empty;
@@ -1735,7 +1736,7 @@ namespace MediaBrowser.Controller.Entities
             // First get using the cached Id
             if (info.ItemId.HasValue)
             {
-                if (info.ItemId.Value.Equals(Guid.Empty))
+                if (info.ItemId.Value.Equals(default))
                 {
                     return null;
                 }
@@ -2041,27 +2042,32 @@ namespace MediaBrowser.Controller.Entities
         /// <summary>
         /// Validates that images within the item are still on the filesystem.
         /// </summary>
-        /// <param name="directoryService">The directory service to use.</param>
         /// <returns><c>true</c> if the images validate, <c>false</c> if not.</returns>
-        public bool ValidateImages(IDirectoryService directoryService)
+        public bool ValidateImages()
         {
-            var allFiles = ImageInfos
-                .Where(i => i.IsLocalFile)
-                .Select(i => System.IO.Path.GetDirectoryName(i.Path))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .SelectMany(path => directoryService.GetFilePaths(path))
-                .ToList();
+            List<ItemImageInfo> deletedImages = null;
+            foreach (var imageInfo in ImageInfos)
+            {
+                if (!imageInfo.IsLocalFile)
+                {
+                    continue;
+                }
 
-            var deletedImages = ImageInfos
-                .Where(image => image.IsLocalFile && !allFiles.Contains(image.Path, StringComparison.OrdinalIgnoreCase))
-                .ToList();
+                if (File.Exists(imageInfo.Path))
+                {
+                    continue;
+                }
 
-            if (deletedImages.Count > 0)
+                (deletedImages ??= new List<ItemImageInfo>()).Add(imageInfo);
+            }
+
+            var anyImagesRemoved = deletedImages?.Count > 0;
+            if (anyImagesRemoved)
             {
                 RemoveImages(deletedImages);
             }
 
-            return deletedImages.Count > 0;
+            return anyImagesRemoved;
         }
 
         /// <summary>
@@ -2651,7 +2657,7 @@ namespace MediaBrowser.Controller.Entities
         }
 
         /// <inheritdoc />
-        public bool Equals(BaseItem other) => Id == other?.Id;
+        public bool Equals(BaseItem other) => other is not null && other.Id.Equals(Id);
 
         /// <inheritdoc />
         public override int GetHashCode() => HashCode.Combine(Id);

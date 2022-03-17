@@ -213,7 +213,7 @@ namespace MediaBrowser.Controller.Entities
         {
             item.SetParent(this);
 
-            if (item.Id.Equals(Guid.Empty))
+            if (item.Id.Equals(default))
             {
                 item.Id = LibraryManager.GetNewItemId(item.Path, item.GetType());
             }
@@ -730,7 +730,9 @@ namespace MediaBrowser.Controller.Entities
                 return PostFilterAndSort(items, query, true);
             }
 
-            if (this is not UserRootFolder && this is not AggregateFolder && query.ParentId == Guid.Empty)
+            if (this is not UserRootFolder
+                && this is not AggregateFolder
+                && query.ParentId.Equals(default))
             {
                 query.Parent = this;
             }
@@ -783,11 +785,10 @@ namespace MediaBrowser.Controller.Entities
                 returnItems = returnItems.Skip(startIndex.Value);
             }
 
-            return new QueryResult<BaseItem>
-            {
-                TotalRecordCount = totalCount,
-                Items = returnItems.ToArray()
-            };
+            return new QueryResult<BaseItem>(
+                query.StartIndex,
+                totalCount,
+                returnItems.ToArray());
         }
 
         private bool RequiresPostFiltering2(InternalItemsQuery query)
@@ -846,6 +847,18 @@ namespace MediaBrowser.Controller.Entities
             if (query.HasTrailer.HasValue)
             {
                 Logger.LogDebug("Query requires post-filtering due to HasTrailer");
+                return true;
+            }
+
+            if (query.HasThemeSong.HasValue)
+            {
+                Logger.LogDebug("Query requires post-filtering due to HasThemeSong");
+                return true;
+            }
+
+            if (query.HasThemeVideo.HasValue)
+            {
+                Logger.LogDebug("Query requires post-filtering due to HasThemeVideo");
                 return true;
             }
 
@@ -965,7 +978,7 @@ namespace MediaBrowser.Controller.Entities
                     query.ChannelIds = new[] { ChannelId };
 
                     // Don't blow up here because it could cause parent screens with other content to fail
-                    return ChannelManager.GetChannelItemsInternal(query, new SimpleProgress<double>(), CancellationToken.None).Result;
+                    return ChannelManager.GetChannelItemsInternal(query, new SimpleProgress<double>(), CancellationToken.None).GetAwaiter().GetResult();
                 }
                 catch
                 {
@@ -1493,7 +1506,7 @@ namespace MediaBrowser.Controller.Entities
             {
                 if (i.ItemId.HasValue)
                 {
-                    if (i.ItemId.Value == itemId)
+                    if (i.ItemId.Value.Equals(itemId))
                     {
                         return true;
                     }
@@ -1503,7 +1516,7 @@ namespace MediaBrowser.Controller.Entities
 
                 var child = GetLinkedChild(i);
 
-                if (child != null && child.Id == itemId)
+                if (child != null && child.Id.Equals(itemId))
                 {
                     return true;
                 }
@@ -1586,7 +1599,7 @@ namespace MediaBrowser.Controller.Entities
                 .Where(i => i.Item2 != null);
         }
 
-        protected override async Task<bool> RefreshedOwnedItems(MetadataRefreshOptions options, List<FileSystemMetadata> fileSystemChildren, CancellationToken cancellationToken)
+        protected override async Task<bool> RefreshedOwnedItems(MetadataRefreshOptions options, IReadOnlyList<FileSystemMetadata> fileSystemChildren, CancellationToken cancellationToken)
         {
             var changesFound = false;
 

@@ -44,9 +44,11 @@ namespace MediaBrowser.MediaEncoding.Probing
         private IReadOnlyList<string> SplitWhitelist => _splitWhiteList ??= new string[]
         {
             "AC/DC",
+            "As/Hi Soundworks",
             "Au/Ra",
             "Bremer/McCoy",
             "이달의 소녀 1/3",
+            "R!N / Gemie",
             "LOONA 1/3",
             "LOONA / yyxy",
             "LOONA / ODD EYE CIRCLE",
@@ -700,9 +702,9 @@ namespace MediaBrowser.MediaEncoding.Probing
 
                 if (string.IsNullOrEmpty(stream.Title))
                 {
-                    // mp4 missing track title workaround: fall back to handler_name if populated
+                    // mp4 missing track title workaround: fall back to handler_name if populated and not the default "SoundHandler"
                     string handlerName = GetDictionaryValue(streamInfo.Tags, "handler_name");
-                    if (!string.IsNullOrEmpty(handlerName))
+                    if (!string.IsNullOrEmpty(handlerName) && !string.Equals(handlerName, "SoundHandler", StringComparison.OrdinalIgnoreCase))
                     {
                         stream.Title = handlerName;
                     }
@@ -715,6 +717,7 @@ namespace MediaBrowser.MediaEncoding.Probing
                 stream.LocalizedUndefined = _localization.GetLocalizedString("Undefined");
                 stream.LocalizedDefault = _localization.GetLocalizedString("Default");
                 stream.LocalizedForced = _localization.GetLocalizedString("Forced");
+                stream.LocalizedExternal = _localization.GetLocalizedString("External");
 
                 if (string.IsNullOrEmpty(stream.Title))
                 {
